@@ -1,0 +1,12 @@
+# Secretos
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Archivos generados o subidos
+media/
+staticfiles/
+node_modules/

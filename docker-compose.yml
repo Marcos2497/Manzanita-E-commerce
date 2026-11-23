@@ -1,0 +1,40 @@
+# Entorno de DESARROLLO de la tienda Manzanitas.
+# - db: PostgreSQL local, misma versión mayor que la base de producción (Neon).
+# - web: Django con runserver; el código se monta desde tu carpeta, así los cambios se ven al instante.
+# Los puertos se publican solo en 127.0.0.1 para que no queden abiertos a la red (Docker se saltea ufw).
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: manzanitas
+      POSTGRES_USER: manzanitas
+      POSTGRES_PASSWORD: manzanitas
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"   # si ya tenés un PostgreSQL instalado en la notebook, cambiá a 5433:5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U manzanitas -d manzanitas"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    command: python manage.py runserver 0.0.0.0:8000
+    env_file: .env
+    volumes:
+      - .:/app
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

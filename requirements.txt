@@ -1,0 +1,8 @@
+Django>=6.1,<6.2
+psycopg[binary]>=3.2
+dj-database-url>=2.3
+gunicorn>=23.0
+whitenoise>=6.9
+Pillow>=11.0
+django-htmx>=1.27
+django-unfold>=0.110
