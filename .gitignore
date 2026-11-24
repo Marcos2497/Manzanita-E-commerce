@@ -221,3 +221,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Proyecto: archivos generados o subidos
+media/
+staticfiles/
+node_modules/
