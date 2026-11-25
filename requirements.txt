@@ -6,3 +6,4 @@ whitenoise>=6.9
 Pillow>=11.0
 django-htmx>=1.27
 django-unfold>=0.110
+django-storages[s3]>=1.14
