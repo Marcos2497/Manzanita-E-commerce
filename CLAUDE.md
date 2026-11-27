@@ -9,6 +9,7 @@ Tienda online para un emprendimiento de marroquinería y costura creativa. La du
 - Base de datos: PostgreSQL 17. Desarrollo: servicio `db` del docker-compose. Producción: Neon. La conexión siempre sale de `DATABASE_URL` (dj-database-url con `conn_health_checks=True`, porque Neon se apaga tras 5 min sin uso).
 - Estáticos con WhiteNoise.
 - Fotos de productos (media): en producción van a Cloudflare R2 con django-storages (backend S3); en desarrollo se guardan en disco local (`media/`). El backend se elige por variables de entorno: si está definida `R2_BUCKET` se usa R2; si no, disco local.
+- Solo las fotos de productos van en el bucket público. Los comprobantes de pago van en un bucket privado y se ven con URL firmada.
 - Fotos optimizadas: al subirlas se guarda una versión de máximo 1600 px de lado en WebP, para no servir fotos de celular de varios MB. Se implementa cuando armemos los modelos del catálogo.
 
 ## Cómo se trabaja
@@ -16,6 +17,14 @@ Tienda online para un emprendimiento de marroquinería y costura creativa. La du
 - No instalar paquetes en el sistema: agregarlos a `requirements.txt` y reconstruir con `docker compose build`.
 - Los secretos van solo en `.env` (nunca al repo ni a la imagen). `.env.example` documenta las variables.
 - Portabilidad: en producción nada puede depender del disco local ni de tareas programadas (cron), y toda la configuración sale de variables de entorno.
+- Las decisiones de arquitectura están en docs/decisiones/. Si una tarea contradice un ADR, avisame antes de seguir.
+
+## Flujo de trabajo
+- Al empezar una sesión: correr `gh issue list` y proponer el próximo issue del milestone abierto.
+- Una rama por issue: `feat/<número>-<descripcion-corta>` (o `fix/`, `docs/`).
+- Commits con Conventional Commits en español, ej. `feat(catalogo): agregar variantes`.
+- Al terminar: comentar en el issue qué se hizo, qué problemas aparecieron y cómo se resolvieron, y abrir el PR con `Closes #<número>`.
+- No crear ni cerrar issues sin mostrarme antes el texto.
 
 ## Producción (todavía no armada)
 - Máquina virtual e2-micro de Google Cloud (plan gratis, región us-east1) + Neon (PostgreSQL) + Cloudflare R2 (fotos). Descartamos Vercel: su plan gratis no permite uso comercial y su límite de 4,5 MB por request complica subir fotos desde el panel.
