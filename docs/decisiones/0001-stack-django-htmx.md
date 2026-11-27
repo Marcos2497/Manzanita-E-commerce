@@ -3,7 +3,7 @@
 - Fecha: 2026-11-25
 
 ## Contexto
-La tienda es para una clienta no técnica que carga todo desde un panel. Hay un solo desarrollador. Se busca desarrollo rápido, Python por su valor para el portfolio y una dinámica tipo Livewire (ya usada con Laravel).
+La tienda es para una clienta no técnica que carga todo desde un panel. Hay un solo desarrollador. Se busca desarrollo rápido, Python y una dinámica tipo Livewire (ya usada con Laravel para proyectos anteriores).
 
 ## Decisión
 - Django 6.1 (actualizar a 6.2 LTS en abril de 2027).
