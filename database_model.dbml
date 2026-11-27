@@ -1,0 +1,354 @@
+// Manzanitas - modelo de datos
+// Pegalo en https://dbdiagram.io
+// Fuente de verdad: los modelos de Django y sus migraciones. Este archivo documenta el diseño.
+
+Project manzanitas {
+  database_type: 'PostgreSQL'
+  Note: '''
+  Tienda online de Manzanitas (marroquineria y costura creativa).
+  - Los enums se implementan en Django con TextChoices (varchar), no como ENUM de PostgreSQL.
+  - Plata: decimal(12,2). Cantidades de material: decimal(10,3).
+  - Catalogo con borrado logico (eliminado_en). Los unique del catalogo son parciales: solo entre filas no eliminadas.
+  - El carrito vive en la sesion de Django, no en tablas.
+  - Tablas con encabezado gris: fase 2, no se implementan todavia.
+  - En Django los nombres reales van a ser app_modelo (ej. catalogo_producto).
+  '''
+}
+
+// ---------- Enums (TextChoices en Django) ----------
+
+Enum estados_pedido {
+  pendiente_pago [note: 'Recien creado. Si vence_el ya paso, se considera vencido al consultarlo']
+  pagado
+  en_preparacion
+  listo [note: 'Listo para retirar o despachar']
+  entregado
+  cancelado
+}
+
+Enum formas_pago {
+  transferencia
+  efectivo
+  mercado_pago
+}
+
+Enum formas_entrega {
+  retiro_taller
+  envio_domicilio
+}
+
+Enum estados_pago {
+  pendiente
+  aprobado
+  rechazado
+}
+
+Enum estados_arrepentimiento {
+  recibida
+  en_proceso
+  resuelta
+}
+
+Enum tipos_movimiento {
+  ingreso
+  consumo
+  ajuste
+}
+
+// ---------- Django ----------
+
+Table auth_user [headercolor: #6E5560] {
+  id integer [pk, increment]
+  username varchar(150) [not null, unique]
+  Note: 'Tabla propia de Django (usuarios del panel). No se crea a mano.'
+}
+
+// ---------- Catalogo ----------
+
+Table categorias {
+  id bigint [pk, increment]
+  nombre varchar(80) [not null]
+  slug varchar(90) [not null, unique]
+  descripcion text
+  imagen varchar(255) [note: 'Ruta en R2']
+  orden smallint [not null, default: 0]
+  activa boolean [not null, default: true]
+  eliminado_en timestamptz [note: 'Borrado logico']
+  creado_en timestamptz [not null, default: `now()`]
+  actualizado_en timestamptz [not null, default: `now()`]
+}
+
+Table productos {
+  id bigint [pk, increment]
+  categoria_id bigint [not null, ref: > categorias.id]
+  nombre varchar(120) [not null]
+  slug varchar(140) [not null, unique]
+  descripcion text
+  precio decimal(12,2) [not null, note: 'CHECK >= 0. Vale para todas sus variantes, salvo que la variante tenga precio propio']
+  hecho_a_pedido boolean [not null, default: false, note: 'Sin derecho de arrepentimiento (art. 1116 CCyC). Se avisa en el checkout']
+  destacado boolean [not null, default: false, note: 'Aparece en el inicio']
+  activo boolean [not null, default: true, note: 'false = no se muestra en la tienda']
+  eliminado_en timestamptz [note: 'Borrado logico']
+  creado_en timestamptz [not null, default: `now()`]
+  actualizado_en timestamptz [not null, default: `now()`]
+}
+
+Table atributos {
+  id bigint [pk, increment]
+  nombre varchar(40) [not null, unique, note: 'Color, Tamaño, Material']
+  orden smallint [not null, default: 0]
+}
+
+Table valores_atributo {
+  id bigint [pk, increment]
+  atributo_id bigint [not null, ref: > atributos.id]
+  valor varchar(40) [not null, note: 'Rosa, Grande, Cuero ecologico']
+  color_hex char(7) [note: 'Solo para Color, ej. #D6286A']
+  orden smallint [not null, default: 0]
+
+  indexes {
+    (atributo_id, valor) [unique]
+  }
+}
+
+Table producto_atributos {
+  id bigint [pk, increment]
+  producto_id bigint [not null, ref: > productos.id]
+  atributo_id bigint [not null, ref: > atributos.id]
+
+  indexes {
+    (producto_id, atributo_id) [unique]
+  }
+
+  Note: 'Por que atributos varia cada producto (ej. la bandolera varia por Color y Tamaño). Arma los selectores de la tienda.'
+}
+
+Table variantes {
+  id bigint [pk, increment]
+  producto_id bigint [not null, ref: > productos.id]
+  sku varchar(40) [unique, note: 'Opcional: codigo interno de la dueña']
+  clave_combinacion varchar(100) [not null, note: 'Ids de los valores ordenados, ej. "3-7". La arma la app']
+  precio decimal(12,2) [note: 'null = usa el precio del producto. CHECK >= 0']
+  activa boolean [not null, default: true]
+  eliminado_en timestamptz [note: 'Borrado logico']
+  creado_en timestamptz [not null, default: `now()`]
+
+  indexes {
+    (producto_id, clave_combinacion) [unique, note: 'No se repite la misma combinacion de valores en un producto']
+  }
+
+  Note: 'Todo producto tiene al menos una variante. Fase 2: se suman disponibilidad (en_stock / a_pedido) y stock_disponible.'
+}
+
+Table variante_valores {
+  id bigint [pk, increment]
+  variante_id bigint [not null, ref: > variantes.id]
+  valor_id bigint [not null, ref: > valores_atributo.id]
+  atributo_id bigint [not null, ref: > atributos.id, note: 'Copia del atributo del valor; habilita el unique de abajo']
+
+  indexes {
+    (variante_id, atributo_id) [unique, note: 'Un solo valor por atributo: una variante no puede ser Rosa y Negra a la vez']
+  }
+
+  Note: 'atributo_id tiene que coincidir con el atributo de valor_id (FK compuesta o validacion en el modelo).'
+}
+
+Table imagenes_producto {
+  id bigint [pk, increment]
+  producto_id bigint [not null, ref: > productos.id]
+  variante_id bigint [ref: > variantes.id, note: 'Opcional: foto de un color en particular']
+  archivo varchar(255) [not null, note: 'Ruta en R2 (bucket publico). Version optimizada WebP, max. 1600 px']
+  texto_alternativo varchar(150)
+  orden smallint [not null, default: 0]
+}
+
+Table personalizaciones {
+  id bigint [pk, increment]
+  nombre varchar(80) [not null, note: 'Bordado con nombre o inicial']
+  precio_extra decimal(12,2) [not null, default: 0, note: 'CHECK >= 0']
+  requiere_texto boolean [not null, default: false]
+  max_caracteres smallint [note: 'Ej. 10. Obligatorio si requiere_texto']
+  activa boolean [not null, default: true]
+
+  Note: 'Reutilizables: el mismo bordado se ofrece en varios productos.'
+}
+
+Table producto_personalizaciones {
+  id bigint [pk, increment]
+  producto_id bigint [not null, ref: > productos.id]
+  personalizacion_id bigint [not null, ref: > personalizaciones.id]
+
+  indexes {
+    (producto_id, personalizacion_id) [unique]
+  }
+}
+
+// ---------- Pedidos y pagos ----------
+
+Table pedidos {
+  id bigint [pk, increment]
+  codigo varchar(12) [not null, unique, note: 'Para el cliente y el mensaje de WhatsApp, ej. MZ-0042']
+  estado estados_pedido [not null, default: 'pendiente_pago']
+  forma_pago formas_pago [not null, note: 'Lo que eligio el cliente. Los cobros reales estan en pagos']
+  forma_entrega formas_entrega [not null]
+  cliente_nombre varchar(120) [not null]
+  cliente_telefono varchar(30) [not null]
+  cliente_email varchar(254)
+  direccion_envio text [note: 'Obligatoria si forma_entrega = envio_domicilio']
+  notas_cliente text
+  subtotal decimal(12,2) [not null]
+  costo_envio decimal(12,2) [note: 'null = a coordinar por WhatsApp']
+  total decimal(12,2) [not null]
+  vence_el timestamptz [note: 'Solo transferencia y Mercado Pago: creado_en + horas_vencimiento. Vencimiento perezoso, sin cron']
+  creado_en timestamptz [not null, default: `now()`]
+  actualizado_en timestamptz [not null, default: `now()`]
+
+  indexes {
+    (estado, creado_en)
+  }
+
+  Note: 'Sin cuentas de cliente en fase 1: los datos de contacto viven en el pedido.'
+}
+
+Table pedido_items {
+  id bigint [pk, increment]
+  pedido_id bigint [not null, ref: > pedidos.id]
+  variante_id bigint [not null, ref: > variantes.id, note: 'on delete PROTECT: el catalogo usa borrado logico']
+  producto_nombre varchar(120) [not null, note: 'Copia al momento de la compra']
+  variante_descripcion varchar(150) [not null, note: 'Copia, ej. Rosa / Grande']
+  precio_unitario decimal(12,2) [not null, note: 'Copia del precio de la variante']
+  cantidad smallint [not null, note: 'CHECK > 0']
+  subtotal decimal(12,2) [not null, note: '(precio_unitario + personalizaciones) x cantidad']
+  admite_arrepentimiento boolean [not null, note: 'false si el producto es hecho a pedido o el item tiene personalizacion']
+}
+
+Table item_personalizaciones {
+  id bigint [pk, increment]
+  item_id bigint [not null, ref: > pedido_items.id]
+  personalizacion_id bigint [ref: > personalizaciones.id]
+  nombre varchar(80) [not null, note: 'Copia']
+  precio_extra decimal(12,2) [not null, note: 'Copia']
+  texto varchar(50) [note: 'Lo que hay que bordar']
+}
+
+Table pagos {
+  id bigint [pk, increment]
+  pedido_id bigint [not null, ref: > pedidos.id]
+  metodo formas_pago [not null]
+  estado estados_pago [not null, default: 'pendiente']
+  monto decimal(12,2) [not null, note: 'CHECK > 0']
+  comprobante varchar(255) [note: 'Bucket PRIVADO de R2, se ve con URL firmada. Puede faltar si lo mando por WhatsApp']
+  mp_payment_id varchar(40) [unique, note: 'Solo Mercado Pago. Unico porque el webhook puede llegar repetido']
+  confirmado_por integer [ref: > auth_user.id]
+  confirmado_en timestamptz
+  creado_en timestamptz [not null, default: `now()`]
+
+  Note: 'Un pedido puede tener mas de un pago (ej. seña y saldo). Mercado Pago se aprueba solo por webhook.'
+}
+
+Table pedido_historial_estados {
+  id bigint [pk, increment]
+  pedido_id bigint [not null, ref: > pedidos.id]
+  estado_anterior estados_pedido [note: 'null en el alta del pedido']
+  estado_nuevo estados_pedido [not null]
+  cambiado_en timestamptz [not null, default: `now()`]
+
+  Note: 'La llena un TRIGGER de PostgreSQL (AFTER INSERT OR UPDATE OF estado ON pedidos), creado con RunSQL en una migracion. Django solo la lee.'
+}
+
+Table solicitudes_arrepentimiento {
+  id bigint [pk, increment]
+  codigo varchar(12) [not null, unique, note: 'Se le informa al cliente dentro de las 24 h y por el mismo medio (Res. 424/2020)']
+  pedido_id bigint [ref: > pedidos.id, note: 'Opcional: el cliente puede no tener el codigo del pedido']
+  nombre varchar(120) [not null]
+  telefono varchar(30)
+  email varchar(254)
+  mensaje text
+  estado estados_arrepentimiento [not null, default: 'recibida']
+  creado_en timestamptz [not null, default: `now()`]
+
+  Note: 'Boton de arrepentimiento: el formulario no puede pedir registro ni login.'
+}
+
+// ---------- Tienda ----------
+
+Table configuracion_tienda {
+  id smallint [pk, note: 'Una sola fila (id = 1)']
+  whatsapp varchar(20) [not null, note: 'Numero al que llegan los pedidos (formato wa.me)']
+  alias_transferencia varchar(60) [not null]
+  titular_cuenta varchar(120) [not null]
+  horas_vencimiento smallint [not null, default: 48]
+  mercado_pago_activo boolean [not null, default: false]
+  texto_envios text [note: 'Informacion de envios que se muestra en el checkout']
+
+  Note: 'La edita la dueña desde el panel. Las credenciales de Mercado Pago NO van aca: van en el .env.'
+}
+
+// ---------- Fase 2: inventario (no implementar todavia) ----------
+
+Table materiales [headercolor: #9E9E9E] {
+  id bigint [pk, increment]
+  nombre varchar(80) [not null, unique, note: 'Cuero ecologico rosa, hilo, cierre 20 cm']
+  unidad varchar(10) [not null, note: 'm, cm, m2, unidad (TextChoices)']
+  stock_minimo decimal(10,3) [not null, default: 0, note: 'Para avisar cuando hay que reponer']
+  activo boolean [not null, default: true]
+}
+
+Table recetas [headercolor: #9E9E9E] {
+  id bigint [pk, increment]
+  variante_id bigint [not null, ref: > variantes.id]
+  material_id bigint [not null, ref: > materiales.id]
+  cantidad decimal(10,3) [not null, note: 'Material que consume UNA unidad de la variante. CHECK > 0']
+
+  indexes {
+    (variante_id, material_id) [unique]
+  }
+}
+
+Table movimientos_stock [headercolor: #9E9E9E] {
+  id bigint [pk, increment]
+  material_id bigint [not null, ref: > materiales.id]
+  tipo tipos_movimiento [not null]
+  cantidad decimal(10,3) [not null, note: 'Positiva entra, negativa sale. CHECK <> 0']
+  pedido_id bigint [ref: > pedidos.id, note: 'Si es el consumo de un pedido']
+  nota varchar(200)
+  creado_por integer [ref: > auth_user.id]
+  creado_en timestamptz [not null, default: `now()`]
+
+  Note: 'El stock actual NO se guarda: sale de una vista SQL (SUM(cantidad) por material).'
+}
+
+// ---------- Grupos ----------
+
+TableGroup catalogo {
+  categorias
+  productos
+  atributos
+  valores_atributo
+  producto_atributos
+  variantes
+  variante_valores
+  imagenes_producto
+  personalizaciones
+  producto_personalizaciones
+}
+
+TableGroup pedidos_y_pagos {
+  pedidos
+  pedido_items
+  item_personalizaciones
+  pagos
+  pedido_historial_estados
+  solicitudes_arrepentimiento
+}
+
+TableGroup tienda {
+  configuracion_tienda
+  auth_user
+}
+
+TableGroup fase_2_inventario {
+  materiales
+  recetas
+  movimientos_stock
+}
